@@ -45,22 +45,22 @@ ENDPOINT:
 
 ENVIRONMENT VARIABLES:
   ACCESS:
-     MINIO_ACCESS_KEY: Username or access key of Azure storage.
-     MINIO_SECRET_KEY: Password or secret key of Azure storage.
+	 MINIO_ACCESS_KEY: Username or access key of Azure storage.
+	 MINIO_SECRET_KEY: Password or secret key of Azure storage.
 
   BROWSER:
-     MINIO_BROWSER: To disable web browser access, set this value to "off".
+	 MINIO_BROWSER: To disable web browser access, set this value to "off".
 
 EXAMPLES:
   1. Start minio gateway server for Azure Blob Storage backend.
-      $ export MINIO_ACCESS_KEY=azureaccountname
-      $ export MINIO_SECRET_KEY=azureaccountkey
-      $ {{.HelpName}}
+	  $ export MINIO_ACCESS_KEY=azureaccountname
+	  $ export MINIO_SECRET_KEY=azureaccountkey
+	  $ {{.HelpName}}
 
   2. Start minio gateway server for Azure Blob Storage backend on custom endpoint.
-      $ export MINIO_ACCESS_KEY=azureaccountname
-      $ export MINIO_SECRET_KEY=azureaccountkey
-      $ {{.HelpName}} https://azure.example.com
+	  $ export MINIO_ACCESS_KEY=azureaccountname
+	  $ export MINIO_SECRET_KEY=azureaccountkey
+	  $ {{.HelpName}} https://azure.example.com
 `
 
 const s3GatewayTemplate = `NAME:
@@ -77,22 +77,22 @@ ENDPOINT:
 
 ENVIRONMENT VARIABLES:
   ACCESS:
-     MINIO_ACCESS_KEY: Username or access key of S3 storage.
-     MINIO_SECRET_KEY: Password or secret key of S3 storage.
+	 MINIO_ACCESS_KEY: Username or access key of S3 storage.
+	 MINIO_SECRET_KEY: Password or secret key of S3 storage.
 
   BROWSER:
-     MINIO_BROWSER: To disable web browser access, set this value to "off".
+	 MINIO_BROWSER: To disable web browser access, set this value to "off".
 
 EXAMPLES:
   1. Start minio gateway server for AWS S3 backend.
-      $ export MINIO_ACCESS_KEY=accesskey
-      $ export MINIO_SECRET_KEY=secretkey
-      $ {{.HelpName}}
+	  $ export MINIO_ACCESS_KEY=accesskey
+	  $ export MINIO_SECRET_KEY=secretkey
+	  $ {{.HelpName}}
 
   2. Start minio gateway server for S3 backend on custom endpoint.
-      $ export MINIO_ACCESS_KEY=Q3AM3UQ867SPQQA43P2F
-      $ export MINIO_SECRET_KEY=zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG
-      $ {{.HelpName}} https://play.minio.io:9000
+	  $ export MINIO_ACCESS_KEY=Q3AM3UQ867SPQQA43P2F
+	  $ export MINIO_SECRET_KEY=zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG
+	  $ {{.HelpName}} https://play.minio.io:9000
 `
 
 const gcsGatewayTemplate = `NAME:
@@ -109,19 +109,19 @@ PROJECTID:
 
 ENVIRONMENT VARIABLES:
   ACCESS:
-     MINIO_ACCESS_KEY: Username or access key of GCS.
-     MINIO_SECRET_KEY: Password or secret key of GCS.
+	 MINIO_ACCESS_KEY: Username or access key of GCS.
+	 MINIO_SECRET_KEY: Password or secret key of GCS.
 
   BROWSER:
-     MINIO_BROWSER: To disable web browser access, set this value to "off".
+	 MINIO_BROWSER: To disable web browser access, set this value to "off".
 
 EXAMPLES:
   1. Start minio gateway server for GCS backend.
-      $ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
-      (Instructions to generate credentials : https://developers.google.com/identity/protocols/application-default-credentials)
-      $ export MINIO_ACCESS_KEY=accesskey
-      $ export MINIO_SECRET_KEY=secretkey
-      $ {{.HelpName}} mygcsprojectid
+	  $ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
+	  (Instructions to generate credentials : https://developers.google.com/identity/protocols/application-default-credentials)
+	  $ export MINIO_ACCESS_KEY=accesskey
+	  $ export MINIO_SECRET_KEY=secretkey
+	  $ {{.HelpName}} mygcsprojectid
 
 `
 
@@ -165,9 +165,10 @@ var (
 type gatewayBackend string
 
 const (
-	azureBackend gatewayBackend = "azure"
-	s3Backend    gatewayBackend = "s3"
-	gcsBackend   gatewayBackend = "gcs"
+	azureBackend  gatewayBackend = "azure"
+	s3Backend     gatewayBackend = "s3"
+	gcsBackend    gatewayBackend = "gcs"
+	tritonBackend gatewayBackend = "triton"
 	// Add more backends here.
 )
 
@@ -177,6 +178,7 @@ const (
 // - Azure Blob Storage.
 // - AWS S3.
 // - Google Cloud Storage.
+// - Joyent Triton Object Storage (Manta).
 // - Add your favorite backend here.
 func newGatewayLayer(backendType gatewayBackend, arg string) (GatewayLayer, error) {
 	switch backendType {
@@ -189,6 +191,11 @@ func newGatewayLayer(backendType gatewayBackend, arg string) (GatewayLayer, erro
 		// will be removed when gcs is ready for production use.
 		log.Println(colorYellow("\n               *** Warning: Not Ready for Production ***"))
 		return newGCSGateway(arg)
+	case tritonBackend:
+		// FIXME: The following print command is temporary and
+		// will be removed when triton is ready for production use.
+		log.Println(colorYellow("\n               *** Warning: Not Ready for Production ***"))
+		return newTritonGateway(arg)
 	}
 
 	return nil, fmt.Errorf("Unrecognized backend type %s", backendType)
@@ -225,10 +232,13 @@ func validateGatewayArguments(serverAddr, endpointAddr string) error {
 
 	if runtime.GOOS == "darwin" {
 		_, port := mustSplitHostPort(serverAddr)
-		// On macOS, if a process already listens on LOCALIPADDR:PORT, net.Listen() falls back
-		// to IPv6 address i.e minio will start listening on IPv6 address whereas another
-		// (non-)minio process is listening on IPv4 of given port.
-		// To avoid this error situation we check for port availability only for macOS.
+		// On macOS, if a process already listens on LOCALIPADDR:PORT,
+		// net.Listen() falls back to IPv6 address i.e minio will start
+		// listening on IPv6 address whereas another (non-)minio process is
+		// listening on IPv4 of given port.
+		//
+		// To avoid this error situation we check for port availability only for
+		// macOS.
 		if err := checkPortAvailability(port); err != nil {
 			return err
 		}
@@ -283,6 +293,18 @@ func gcsGatewayMain(ctx *cli.Context) {
 	}
 
 	gatewayMain(ctx, gcsBackend)
+}
+
+// Handler for 'minio gateway triton' command line.
+func tritonGatewayMain(ctx *cli.Context) {
+	if ctx.Args().Present() && ctx.Args().First() == "help" {
+		cli.ShowCommandHelpAndExit(ctx, "triton", 1)
+	}
+
+	// Validate gateway arguments.
+	fatalIf(validateGatewayArguments(ctx.GlobalString("address"), ctx.Args().First()), "Invalid argument")
+
+	gatewayMain(ctx, tritonBackend)
 }
 
 // Handler for 'minio gateway'.
@@ -393,6 +415,8 @@ func gatewayMain(ctx *cli.Context, backendType gatewayBackend) {
 			mode = globalMinioModeGatewayGCS
 		case s3Backend:
 			mode = globalMinioModeGatewayS3
+		case tritonBackend:
+			mode = globalMinioModeGatewayTriton
 		}
 
 		// Check update mode.
